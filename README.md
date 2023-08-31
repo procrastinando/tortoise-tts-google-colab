@@ -39,7 +39,7 @@ Args:
 ```
 !python /content/tortoise-tts/tortoise/do_tts.py --text "I'm going to speak this" --voice random --preset fast
 ```
-### 3. Run the WebUI to convert subtitles into wav:
+### 3. Run the WebUI:
 Add this fuction to `tortoise/api.py`:
 ```
     def tts_custom(self, text, custom_preset, **kwargs):
