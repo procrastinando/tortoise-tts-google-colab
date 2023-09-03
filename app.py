@@ -153,7 +153,7 @@ with gr.Blocks(title='ibarcena.net') as app:
             diffusion_iterations = gr.Slider(minimum=4, maximum=512, value=80, label='Diffusion iterations', step=1)
             temperature = gr.Slider(minimum=0.1, maximum=1, value=0.8, label='Temperature')
             with gr.Row():
-                half = gr.Checkbox(label='Half precision', value=True)
+                half = gr.Checkbox(label='Half precision', value=False)
                 cond_free = gr.Checkbox(label='Conditional free', value=True)
             cond_free_k = gr.Slider(minimum=0.1, maximum=4, value=2.0, label='Conditional free k')
             diffusion_temperature = gr.Slider(minimum=0.1, maximum=1, value=1.0, label='Diffusion temperature')
