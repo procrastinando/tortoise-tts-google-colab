@@ -22,3 +22,5 @@ deepspeed==0.8.3
 py-cpuinfo
 hjson
 psutil
+gradio
+pysrt
