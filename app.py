@@ -9,7 +9,9 @@ import shutil
 import os
 from tortoise.api import TextToSpeech
 from tortoise.utils.audio import load_voices
+from TTS.api import TTS
 import random
+import time
 
 def rest_subs(end_sub, start_sub):
     end_sub = datetime.combine(datetime.today(), end_sub.to_time())
@@ -18,9 +20,13 @@ def rest_subs(end_sub, start_sub):
     return duration
 
 # gtts model
-def t2v_gtts(text, name, extension):
-    tts = gTTS(text, lang='en')
+def t2v_gtts(text, voice, name, extension):
+    tts = gTTS(text, lang=voices_gtts[voice])
     tts.save(f'results/tmp/{name}.2.{extension}')
+
+# coqui model
+def t2v_coqui(tts, text, name, extension):
+    tts.tts_to_file(text=text, file_path=f'results/tmp/{name}.2.{extension}')
 
 # tortoise model
 def t2v_tortoise(tts, emotion, text, voice_samples, custom_preset, name, extension):
@@ -30,6 +36,8 @@ def t2v_tortoise(tts, emotion, text, voice_samples, custom_preset, name, extensi
 def save_silent(duration, name, model, extension):
     if model == 'gtts':
         command = ["ffmpeg", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono", "-t", str(duration), "-acodec", "libmp3lame", f"results/tmp/{name}.{extension}"]
+    if model == 'coqui':
+        command = ["ffmpeg", "-f", "lavfi", "-i", "anullsrc=r=22050:cl=mono", "-t", str(duration), "-acodec", "libmp3lame", f"results/tmp/{name}.{extension}"]
     if model == 'tortoise':
         command = ["ffmpeg", "-f", "lavfi", "-i", "anullsrc=channel_layout=mono:sample_rate=24000", "-t", str(duration), "-c:a", "pcm_f32le", f"results/tmp/{name}.{extension}"]
     subprocess.run(command, capture_output=True)
@@ -59,15 +67,44 @@ def file_key(file):
 
 ##########################################################################
 
-def voice_change(voice):
-    return gr.Audio.update(f"tortoise/voices/{voice}/" + random.choice(os.listdir(f"tortoise/voices/{voice}/")))
+def model_change(model):
+    if model == 'gtts':
+        voice = gr.Dropdown.update(choices=list(voices_gtts.keys()), value=list(voices_gtts.keys())[10])
+        emotion = gr.Dropdown.update(visible=False)
+        preview = gr.Audio.update(visible=False)
+        refresh_btn = gr.Button.update(visible=False)
+        params = gr.Column.update(visible=False)
+
+    elif model == 'coqui':
+        print(voices_coqui)
+        voice = gr.Dropdown.update(choices=voices_coqui, value=voices_coqui[8])
+        emotion = gr.Dropdown.update(visible=False)
+        preview = gr.Audio.update(visible=False)
+        refresh_btn = gr.Button.update(visible=False)
+        params = gr.Column.update(visible=False)
+
+    elif model == 'tortoise':
+        voice = gr.Dropdown.update(choices=voices_tortoise, value=voices_tortoise[0])
+        emotion = gr.Dropdown.update(visible=True)
+        preview = gr.Audio.update(visible=True)
+        refresh_btn = gr.Button.update(visible=True)
+        params = gr.Column.update(visible=True)
+
+    return voice, emotion, preview, refresh_btn, params
+
+def voice_change(model, voice):
+    if model == 'tortoise':
+        return gr.Audio.update(f"tortoise/voices/{voice}/" + random.choice(os.listdir(f"tortoise/voices/{voice}/")))
+    else:
+        return gr.Audio.update()
 
 def refresh_btn_click():
-    global voices_list
-    voices_list = os.listdir('tortoise/voices')
-    return gr.Dropdown.update(choices=voices_list, value=voices_list[0])
+    global voices_tortoise
+    voices_tortoise = os.listdir('tortoise/voices')
+    return gr.Dropdown.update(choices=voices_tortoise, value=voices_tortoise[0])
 
 def generate_btn_click(subtitle, voice, emotion, model, num_autoregressive_samples, diffusion_iterations, temperature, length_penalty, repetition_penalty, top_p, cond_free, cond_free_k, diffusion_temperature, half):
+    start_time = time.time()
     # Clean temporary files
     if os.path.exists("results/tmp/"):
         shutil.rmtree("results/tmp/")
@@ -91,6 +128,11 @@ def generate_btn_click(subtitle, voice, emotion, model, num_autoregressive_sampl
 
     if model == 'gtts':
         extension = 'mp3'
+    if model == 'coqui':
+        extension = 'wav'
+        tts = TTS(model_name=voices_coqui[voices_coqui.index(voice)])  
+        if torch.cuda.is_available():
+            tts.to('cuda:0')
     if model == 'tortoise':
         extension = 'wav'
         voice_samples, conditioning_latents = load_voices([voice])
@@ -104,7 +146,9 @@ def generate_btn_click(subtitle, voice, emotion, model, num_autoregressive_sampl
         save_silent(duration, f'{number}.1', model, extension)
 
         if model == 'gtts':
-            t2v_gtts(sub.text, number, extension)
+            t2v_gtts(sub.text, voice, number, extension)
+        if model == 'coqui':
+            t2v_coqui(tts, sub.text, number, extension)
         if model == 'tortoise':
             t2v_tortoise(tts, emotion, sub.text, voice_samples, custom_preset, number, extension)
 
@@ -125,11 +169,13 @@ def generate_btn_click(subtitle, voice, emotion, model, num_autoregressive_sampl
     subprocess.run(command)
 
     shutil.rmtree("results/tmp/")
-    return gr.Audio.update(f"results/output.{extension}")
+    return gr.Audio.update(f"results/output.{extension}"), gr.Textbox.update(f"Total time {round(time.time() - start_time, 0)}s")
 
 ##########################################################################
 
-voices_list = os.listdir('tortoise/voices')
+voices_gtts = {"Afrikaans": "af", "Arabic": "ar", "Bulgarian": "bg", "Bengali": "bn", "Bosnian": "bs", "Catalan": "ca", "Czech": "cs", "Danish": "da", "German": "de", "Greek": "el", "English": "en", "Spanish": "es", "Estonian": "et", "Finnish": "fi", "French": "fr", "Gujarati": "gu", "Hindi": "hi", "Croatian": "hr", "Hungarian": "hu", "Indonesian": "id", "Icelandic": "is", "Italian": "it", "Hebrew": "iw", "Japanese": "ja", "Javanese": "jw", "Khmer": "km", "Kannada": "kn", "Korean": "ko", "Latin": "la", "Latvian": "lv", "Malayalam": "ml", "Marathi": "mr", "Malay": "ms", "Myanmar (Burmese)": "my", "Nepali":"ne", "Dutch": "nl", "Norwegian": "no", "Polish": "pl", "Portuguese": "pt", "Romanian": "ro", "Russian": "ru", "Sinhala": "si", "Slovak": "sk", "Albanian": "sq", "Serbian": "sr", "Sundanese": "su", "Swedish": "sv", "Swahili": "sw", "Tamil": "ta", "Telugu": "te", "Thai": "th", "Filipino": "tl", "Turkish": "tr", "Ukrainian": "uk", "Urdu": "ur", "Vietnamese": "vi", "Chinese (Simplified)": "zh-CN", "Chinese (Mandarin/Taiwan)": "zh-TW", "Chinese (Mandarin)": "zh"}
+voices_coqui = TTS().list_models()
+voices_tortoise = os.listdir('tortoise/voices')
 emotion_list = [None, '[I am really happy,] ', '[I am really sad,] ', '[I am really angry,] ', '[I am really disgusted,] ', '[Arrogant tone,] ', '[I am really surprised!,] ']
 
 with gr.Blocks(title='ibarcena.net') as app:
@@ -142,18 +188,18 @@ with gr.Blocks(title='ibarcena.net') as app:
 
     with gr.Row():
         with gr.Column():
-            model = gr.Dropdown(['gtts', 'tortoise'], value='tortoise', label='TTS model')
+            model = gr.Dropdown(['gtts', 'coqui', 'tortoise'], value='tortoise', label='TTS model')
             subtitle = gr.File(type='binary', label='Subtitles file (.srt)')
-            voice = gr.Dropdown(voices_list, value=voices_list[0], label='Voice')
+            voice = gr.Dropdown(voices_tortoise, value=voices_tortoise[0], label='Voice')
             emotion = gr.Dropdown(emotion_list, value=emotion_list[0], label='Emotion')
             preview = gr.Audio(f"tortoise/voices/{voice.value}/" + random.choice(os.listdir(f"tortoise/voices/{voice.value}/")), label='Preview')
             refresh_btn = gr.Button('Refresh')
-        with gr.Column():
+        with gr.Column() as params:
             num_autoregressive_samples = gr.Slider(minimum=4, maximum=512, value=4, label='Autoregressive samples', step=1)
             diffusion_iterations = gr.Slider(minimum=4, maximum=512, value=80, label='Diffusion iterations', step=1)
             temperature = gr.Slider(minimum=0.1, maximum=1, value=0.8, label='Temperature')
             with gr.Row():
-                half = gr.Checkbox(label='Half precision', value=False)
+                half = gr.Checkbox(label='Half precision', value=True)
                 cond_free = gr.Checkbox(label='Conditional free', value=True)
             cond_free_k = gr.Slider(minimum=0.1, maximum=4, value=2.0, label='Conditional free k')
             diffusion_temperature = gr.Slider(minimum=0.1, maximum=1, value=1.0, label='Diffusion temperature')
@@ -163,8 +209,10 @@ with gr.Blocks(title='ibarcena.net') as app:
         with gr.Column():
             generate_btn = gr.Button('Generate')
             output = gr.Audio(label='Output')
+            output_text = gr.Textbox(show_label=False)
 
+    model.change(model_change, inputs=[model], outputs=[voice, emotion, preview, refresh_btn, params])
+    voice.change(voice_change, inputs=[model, voice], outputs=[preview])
     refresh_btn.click(refresh_btn_click, outputs=[voice])
-    voice.change(voice_change, inputs=[voice], outputs=[preview])
-    generate_btn.click(generate_btn_click, [subtitle, voice, emotion, model, num_autoregressive_samples, diffusion_iterations, temperature, length_penalty, repetition_penalty, top_p, cond_free, cond_free_k, diffusion_temperature, half], outputs=[output])
+    generate_btn.click(generate_btn_click, [subtitle, voice, emotion, model, num_autoregressive_samples, diffusion_iterations, temperature, length_penalty, repetition_penalty, top_p, cond_free, cond_free_k, diffusion_temperature, half], outputs=[output, output_text])
     app.launch(share=False, debug=True)
