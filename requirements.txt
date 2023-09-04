@@ -24,3 +24,6 @@ hjson
 psutil
 gradio
 pysrt
+TTS
+py-espeak-ng
+gTTS
