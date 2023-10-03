@@ -322,6 +322,10 @@ class TextToSpeech:
         with torch.no_grad():
             return self.rlg_auto(torch.tensor([0.0])), self.rlg_diffusion(torch.tensor([0.0]))
 
+    def tts_custom(self, text, custom_preset, **kwargs):
+        custom_preset.update(kwargs)
+        return self.tts(text, **custom_preset)
+
     def tts_with_preset(self, text, preset='fast', **kwargs):
         """
         Calls TTS with one of a set of preset generation parameters. Options:
