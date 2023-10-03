@@ -107,8 +107,8 @@ def generate_btn_click(subtitle, voice, emotion, model, num_autoregressive_sampl
     # Clean temporary files
     if os.path.exists("results/"):
         shutil.rmtree("results/")
-        os.makedirs('results/')
-        os.makedirs('results/tmp/')
+    os.makedirs('results/')
+    os.makedirs('results/tmp/')
 
     custom_preset = {
         'temperature': float(temperature),
