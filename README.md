@@ -40,10 +40,12 @@ Args:
 !python /content/tortoise-tts/tortoise/do_tts.py --text "I'm going to speak this" --voice random --preset fast
 ```
 ### 3. Run the WebUI (does not work on colab):
-Two libraries are neccesary:
+These libraries are neccesary:
 ```
 pip install gradio
 pip install pysrt
+pip install gTTS
+pip install TTS
 ```
 Add this fuction to `tortoise/api.py`:
 ```
