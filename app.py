@@ -58,7 +58,6 @@ def shrink_audio(duration, name, model, extension):
         os.remove(f'results/tmp/{name}.2.{extension}')
         os.rename(f'results/tmp/{name}.2_.{extension}', f'results/tmp/{name}.2.{extension}')
     else:
-        atempo = duration1 / duration
         save_silent(duration - duration1, f'{name}.3', model, extension)
 
 def file_key(file):
@@ -106,9 +105,10 @@ def refresh_btn_click():
 def generate_btn_click(subtitle, voice, emotion, model, num_autoregressive_samples, diffusion_iterations, temperature, length_penalty, repetition_penalty, top_p, cond_free, cond_free_k, diffusion_temperature, half):
     start_time = time.time()
     # Clean temporary files
-    if os.path.exists("results/tmp/"):
-        shutil.rmtree("results/tmp/")
-    os.mkdir("results/tmp/")
+    if os.path.exists("results/"):
+        shutil.rmtree("results/")
+        os.makedirs('results/')
+        os.makedirs('results/tmp/')
 
     custom_preset = {
         'temperature': float(temperature),
@@ -130,7 +130,7 @@ def generate_btn_click(subtitle, voice, emotion, model, num_autoregressive_sampl
         extension = 'mp3'
     if model == 'coqui':
         extension = 'wav'
-        tts = TTS(model_name=voices_coqui[voices_coqui.index(voice)])  
+        tts = TTS(model_name=voice)
         if torch.cuda.is_available():
             tts.to('cuda:0')
     if model == 'tortoise':
@@ -165,11 +165,25 @@ def generate_btn_click(subtitle, voice, emotion, model, num_autoregressive_sampl
     command = ["ffmpeg", "-loglevel", "quiet", "-y"]
     for f in files:
         command.extend(["-i", os.path.join("results/tmp/", f)])
-    command.extend(["-filter_complex", "concat=n={}:v=0:a=1".format(len(files)), f"results/output.{extension}"])
+    command.extend(["-filter_complex", "concat=n={}:v=0:a=1".format(len(files)), f"results/tmp/output.{extension}"])
     subprocess.run(command)
 
+    # Final shrink
+    command = f"ffprobe -i results/tmp/output.{extension} -show_entries format=duration -v quiet -of csv=\"p=0\" -loglevel quiet"
+    process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    output_p = process.communicate()[0].decode("utf-8")
+    duration_file = float(output_p.strip())
+    if abs(duration_file - subs[-1].end.ordinal / 1000) > 0.5:
+        atempo = (duration_file) / (subs[-1].end.ordinal / 1000)
+        print(f"Final atempo: {round(atempo, 4)}x")
+        command = f"ffmpeg -i results/tmp/output.{extension} -filter:a \"atempo={atempo}\" -vn -loglevel quiet results/output.{extension}"
+        process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        output_p = process.communicate()[0].decode("utf-8")
+    else:
+        shutil.move(f'results/tmp/output.{extension}', f'results/output.{extension}')
+
     shutil.rmtree("results/tmp/")
-    return gr.Audio.update(f"results/output.{extension}"), gr.Textbox.update(f"Total time {round(time.time() - start_time, 0)}s")
+    return gr.Audio.update(f"results/output.{extension}", label=f"Total time {int(time.time() - start_time)}s")
 
 ##########################################################################
 
@@ -209,10 +223,9 @@ with gr.Blocks(title='ibarcena.net') as app:
         with gr.Column():
             generate_btn = gr.Button('Generate')
             output = gr.Audio(label='Output')
-            output_text = gr.Textbox(show_label=False)
 
     model.change(model_change, inputs=[model], outputs=[voice, emotion, preview, refresh_btn, params])
     voice.change(voice_change, inputs=[model, voice], outputs=[preview])
     refresh_btn.click(refresh_btn_click, outputs=[voice])
-    generate_btn.click(generate_btn_click, [subtitle, voice, emotion, model, num_autoregressive_samples, diffusion_iterations, temperature, length_penalty, repetition_penalty, top_p, cond_free, cond_free_k, diffusion_temperature, half], outputs=[output, output_text])
+    generate_btn.click(generate_btn_click, [subtitle, voice, emotion, model, num_autoregressive_samples, diffusion_iterations, temperature, length_penalty, repetition_penalty, top_p, cond_free, cond_free_k, diffusion_temperature, half], outputs=[output])
     app.launch(share=False, debug=True)
