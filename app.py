@@ -155,7 +155,7 @@ def generate_btn_click(subtitle, voice, emotion, model, num_autoregressive_sampl
         duration = rest_subs(sub.end, sub.start) # audio duration
         start = sub.end
         shrink_audio(duration, number, model, extension)
-    torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
 
     # Get the list of audio files in the directory and sort them
     files = [f for f in os.listdir("results/tmp/") if f.endswith(f".{extension}")]
