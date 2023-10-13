@@ -30,20 +30,23 @@ def t2v_coqui(tts, text, name, extension):
 
 # tortoise model
 def t2v_tortoise(tts, emotion, text, voice_samples, custom_preset, name, extension):
-    gen = tts.tts_custom(emotion+text, voice_samples=voice_samples, custom_preset=custom_preset)
+    if type(emotion) is not str:
+        gen = tts.tts_custom(text, voice_samples=voice_samples, custom_preset=custom_preset)
+    else:
+        gen = tts.tts_custom(emotion+text, voice_samples=voice_samples, custom_preset=custom_preset)
     torchaudio.save(f'results/tmp/{name}.2.{extension}', gen.squeeze(0).cpu(), 24000)
 
 def save_silent(duration, name, model, extension):
     if model == 'gtts':
-        command = ["ffmpeg", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono", "-t", str(duration), "-acodec", "libmp3lame", f"results/tmp/{name}.{extension}"]
+        command = ["ffmpeg", "-loglevel", "quiet", "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono", "-t", str(duration), "-acodec", "libmp3lame", f"results/tmp/{name}.{extension}"]
     if model == 'coqui':
-        command = ["ffmpeg", "-f", "lavfi", "-i", "anullsrc=r=22050:cl=mono", "-t", str(duration), "-acodec", "libmp3lame", f"results/tmp/{name}.{extension}"]
+        command = ["ffmpeg", "-loglevel", "quiet", "-y", "-f", "lavfi", "-i", "anullsrc=r=22050:cl=mono", "-t", str(duration), "-acodec", "libmp3lame", f"results/tmp/{name}.{extension}"]
     if model == 'tortoise':
-        command = ["ffmpeg", "-f", "lavfi", "-i", "anullsrc=channel_layout=mono:sample_rate=24000", "-t", str(duration), "-c:a", "pcm_f32le", f"results/tmp/{name}.{extension}"]
+        command = ["ffmpeg", "-loglevel", "quiet", "-y", "-f", "lavfi", "-i", "anullsrc=channel_layout=mono:sample_rate=24000", "-t", str(duration), "-c:a", "pcm_f32le", f"results/tmp/{name}.{extension}"]
     subprocess.run(command, capture_output=True)
     print(f"Silence: {duration}s")
 
-def shrink_audio(duration, name, model, extension):
+def shrink_audio(duration, name, model, extension, output_file):
     command = f"ffprobe -i results/tmp/{name}.2.{extension} -show_entries format=duration -v quiet -of csv=\"p=0\" -loglevel quiet"
     process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     output_p = process.communicate()[0].decode("utf-8")
@@ -59,10 +62,13 @@ def shrink_audio(duration, name, model, extension):
         os.rename(f'results/tmp/{name}.2_.{extension}', f'results/tmp/{name}.2.{extension}')
     else:
         save_silent(duration - duration1, f'{name}.3', model, extension)
+        concatenate_audio(output_file, f"results/tmp/{name}.3.{extension}")
 
-def file_key(file):
-    parts = file.split('.')
-    return int(parts[0])
+def concatenate_audio(audio, audio2concatenate):
+    command = ["ffmpeg", "-loglevel", "quiet", "-y", "-i", audio, "-i", audio2concatenate, "-filter_complex", "[0:0][1:0]concat=n=2:v=0:a=1[out]", "-map", "[out]", "results/tmp/final_output.wav"]
+    subprocess.run(command)
+    os.remove(audio)
+    os.rename("results/tmp/final_output.wav", audio)
 
 ##########################################################################
 
@@ -70,7 +76,7 @@ def model_change(model):
     if model == 'gtts':
         voice = gr.Dropdown.update(choices=list(voices_gtts.keys()), value=list(voices_gtts.keys())[10])
         emotion = gr.Dropdown.update(visible=False)
-        preview = gr.Audio.update(visible=False)
+        preview = gr.Audio(visible=False)
         refresh_btn = gr.Button.update(visible=False)
         params = gr.Column.update(visible=False)
 
@@ -78,14 +84,14 @@ def model_change(model):
         print(voices_coqui)
         voice = gr.Dropdown.update(choices=voices_coqui, value=voices_coqui[8])
         emotion = gr.Dropdown.update(visible=False)
-        preview = gr.Audio.update(visible=False)
+        preview = gr.Audio(visible=False)
         refresh_btn = gr.Button.update(visible=False)
         params = gr.Column.update(visible=False)
 
     elif model == 'tortoise':
         voice = gr.Dropdown.update(choices=voices_tortoise, value=voices_tortoise[0])
         emotion = gr.Dropdown.update(visible=True)
-        preview = gr.Audio.update(visible=True)
+        preview = gr.Audio(visible=True)
         refresh_btn = gr.Button.update(visible=True)
         params = gr.Column.update(visible=True)
 
@@ -93,22 +99,21 @@ def model_change(model):
 
 def voice_change(model, voice):
     if model == 'tortoise':
-        return gr.Audio.update(f"tortoise/voices/{voice}/" + random.choice(os.listdir(f"tortoise/voices/{voice}/")))
+        return gr.Audio(f"tortoise/voices/{voice}/" + random.choice(os.listdir(f"tortoise/voices/{voice}/")))
     else:
-        return gr.Audio.update()
+        return gr.Audio()
 
 def refresh_btn_click():
     global voices_tortoise
     voices_tortoise = os.listdir('tortoise/voices')
     return gr.Dropdown.update(choices=voices_tortoise, value=voices_tortoise[0])
 
-def generate_btn_click(subtitle, voice, emotion, model, num_autoregressive_samples, diffusion_iterations, temperature, length_penalty, repetition_penalty, top_p, cond_free, cond_free_k, diffusion_temperature, half):
+def generate_btn_click(subtitle, voice, emotion, model, num_autoregressive_samples, diffusion_iterations, temperature, length_penalty, repetition_penalty, top_p, cond_free, cond_free_k, diffusion_temperature, half, progress=gr.Progress()):
     start_time = time.time()
     # Clean temporary files
     if os.path.exists("results/"):
         shutil.rmtree("results/")
-    os.makedirs('results/')
-    os.makedirs('results/tmp/')
+    os.makedirs('results/tmp/', exist_ok=True)
 
     custom_preset = {
         'temperature': float(temperature),
@@ -139,34 +144,27 @@ def generate_btn_click(subtitle, voice, emotion, model, num_autoregressive_sampl
         tts = TextToSpeech(half=half)
 
     # Syntetize audios
+    save_silent(0, 'output', model, extension)
     start = pysrt.SubRipTime.from_ordinal(0)
-    for number, sub in enumerate(subs):
+    output_file = f"results/tmp/output.{extension}"
+    for number in progress.tqdm(range(len(subs))):
         print(f" --> Processing subtitle {number}")
-        duration = rest_subs(sub.start, start) # a duration
+        duration = rest_subs(subs[number].start, start) # a duration
         save_silent(duration, f'{number}.1', model, extension)
+        concatenate_audio(output_file, f"results/tmp/{number}.1.{extension}")
 
         if model == 'gtts':
-            t2v_gtts(sub.text, voice, number, extension)
+            t2v_gtts(subs[number].text, voice, number, extension)
         if model == 'coqui':
-            t2v_coqui(tts, sub.text, number, extension)
+            t2v_coqui(tts, subs[number].text, number, extension)
         if model == 'tortoise':
-            t2v_tortoise(tts, emotion, sub.text, voice_samples, custom_preset, number, extension)
+            t2v_tortoise(tts, emotion, subs[number].text, voice_samples, custom_preset, number, extension)
+        concatenate_audio(output_file, f"results/tmp/{number}.2.{extension}")
 
-        duration = rest_subs(sub.end, sub.start) # audio duration
-        start = sub.end
-        shrink_audio(duration, number, model, extension)
+        duration = rest_subs(subs[number].end, subs[number].start) # audio duration
+        start = subs[number].end
+        shrink_audio(duration, number, model, extension, output_file)
         torch.cuda.empty_cache()
-
-    # Get the list of audio files in the directory and sort them
-    files = [f for f in os.listdir("results/tmp/") if f.endswith(f".{extension}")]
-    files = sorted(files, key=file_key)
-
-    # Create a command for ffmpeg to join the files
-    command = ["ffmpeg", "-loglevel", "quiet", "-y"]
-    for f in files:
-        command.extend(["-i", os.path.join("results/tmp/", f)])
-    command.extend(["-filter_complex", "concat=n={}:v=0:a=1".format(len(files)), f"results/tmp/output.{extension}"])
-    subprocess.run(command)
 
     # Final shrink
     command = f"ffprobe -i results/tmp/output.{extension} -show_entries format=duration -v quiet -of csv=\"p=0\" -loglevel quiet"
@@ -183,7 +181,7 @@ def generate_btn_click(subtitle, voice, emotion, model, num_autoregressive_sampl
         shutil.move(f'results/tmp/output.{extension}', f'results/output.{extension}')
 
     shutil.rmtree("results/tmp/")
-    return gr.Audio.update(f"results/output.{extension}", label=f"Total time {int(time.time() - start_time)}s")
+    return gr.Audio(f"results/output.{extension}", label=f"Total time {int(time.time() - start_time)}s")
 
 ##########################################################################
 
@@ -228,4 +226,4 @@ with gr.Blocks(title='ibarcena.net') as app:
     voice.change(voice_change, inputs=[model, voice], outputs=[preview])
     refresh_btn.click(refresh_btn_click, outputs=[voice])
     generate_btn.click(generate_btn_click, [subtitle, voice, emotion, model, num_autoregressive_samples, diffusion_iterations, temperature, length_penalty, repetition_penalty, top_p, cond_free, cond_free_k, diffusion_temperature, half], outputs=[output])
-    app.launch(share=False, debug=True)
+    app.queue().launch(share=False, debug=True)
