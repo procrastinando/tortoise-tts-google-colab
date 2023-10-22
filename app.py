@@ -19,16 +19,11 @@ if torch.cuda.is_available():
     from tortoise.api import TextToSpeech
     from tortoise.utils.audio import load_voices
     # bark
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+    from bark import SAMPLE_RATE, generate_audio, preload_models
+    from scipy.io.wavfile import write
+    import numpy as np
     import nltk
     nltk.download('punkt')
-    import numpy as np
-    from bark.generation import (
-        generate_text_semantic,
-        preload_models,
-    )
-    from bark import generate_audio, SAMPLE_RATE
-    from scipy.io.wavfile import write
 
 
 def t2v_gtts(text, voice, audio_path):
@@ -243,6 +238,8 @@ def generate_btn_click(in_type, text, subtitle, voice, voice_clone, speech_lang,
 
     # If text
     if in_type == 'Text':
+        os.makedirs('results/', exist_ok=True)
+        torch.cuda.empty_cache()
         log_start = time.time()
         if model == 'gtts':
             t2v_gtts(text, voice, f'results/speech.{extension}')
@@ -265,7 +262,6 @@ def generate_btn_click(in_type, text, subtitle, voice, voice_clone, speech_lang,
             os.remove(f'results/speech.{extension}')
             out_audios = [f'results/speech_{compress}.mp3']
 
-        del model
         torch.cuda.empty_cache()
 
     # If subtitles
@@ -285,6 +281,7 @@ def generate_btn_click(in_type, text, subtitle, voice, voice_clone, speech_lang,
                 log_atempo = 0
                 # Syntetize audios
                 for number in progress.tqdm(range(len(subs)), desc=os.path.basename(i.name)):
+                    torch.cuda.empty_cache()
                     print(f" --> Processing subtitle {number}")
 
                     if model == 'gtts':
